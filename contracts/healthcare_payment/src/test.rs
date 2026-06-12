@@ -393,3 +393,37 @@ fn test_reentrancy_guard_blocks_concurrent_call() {
 fn test_reentrancy_error_code_is_stable() {
     assert_eq!(Error::Reentrancy as u32, 800);
 }
+
+#[test]
+fn test_escrow_claim_reentrancy_guard() {
+    use crate::{DataKey, Error, HealthcarePayment, HealthcarePaymentClient};
+    let env = Env::default();
+    env.mock_all_auths();
+
+    // Manually set the lock to simulate a reentrant call in progress
+    let contract_id = env.register_contract(None, HealthcarePayment);
+    env.as_contract(&contract_id, || {
+        env.storage().instance().set(&DataKey::Locked, &true);
+    });
+
+    let client = HealthcarePaymentClient::new(&env, &contract_id);
+    let result = client.try_escrow_claim(&1u64);
+    assert_eq!(result, Err(Ok(Error::Reentrancy)));
+}
+
+#[test]
+fn test_batch_process_payments_releases_lock_on_error() {
+    use crate::{DataKey, Error, HealthcarePayment, HealthcarePaymentClient};
+    let env = Env::default();
+    env.mock_all_auths();
+
+    // Manually set the lock to simulate a reentrant call
+    let contract_id = env.register_contract(None, HealthcarePayment);
+    env.as_contract(&contract_id, || {
+        env.storage().instance().set(&DataKey::Locked, &true);
+    });
+
+    let client = HealthcarePaymentClient::new(&env, &contract_id);
+    let result = client.try_batch_process_payments(&soroban_sdk::Vec::new(&env));
+    assert_eq!(result, Err(Ok(Error::Reentrancy)));
+}
